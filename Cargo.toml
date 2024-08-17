@@ -1,0 +1,10 @@
+[package]
+name = "ProyGraf"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+minifb = "0.21"
+image = "0.24"
+winit = "0.28.0"
+rodio = "0.14"
