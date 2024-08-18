@@ -11,6 +11,13 @@ use crate::caster::cast_rays;
 use minifb::{Key, Window, WindowOptions};
 use std::time::{Instant, Duration};
 
+enum GameState {
+    WelcomeScreen,
+    LevelSelection,
+    Playing,
+    LevelCompleted,
+}
+
 fn draw_text(fb: &mut FrameBuffer, x: usize, y: usize, text: &str, scale: usize) {
     let font = [
         [0b11111, 0b10001, 0b10001, 0b10001, 0b11111], // 0
@@ -44,7 +51,6 @@ fn draw_text(fb: &mut FrameBuffer, x: usize, y: usize, text: &str, scale: usize)
                         for sx in 0..scale {
                             let pos_x = x + i * (6 * scale) + col * scale + sx;
                             let pos_y = y + row * scale + sy;
-                            // Verificación adicional antes de dibujar
                             if pos_x < fb_width && pos_y < fb_height {
                                 fb.point(pos_x, pos_y);
                             }
@@ -54,6 +60,28 @@ fn draw_text(fb: &mut FrameBuffer, x: usize, y: usize, text: &str, scale: usize)
             }
         }
     }
+}
+
+fn draw_welcome_screen(fb: &mut FrameBuffer) {
+    fb.clear(); // Limpiamos la pantalla antes de dibujar
+    fb.set_current_color(0xFFFFFF);
+    draw_text(fb, 50, 200, "Welcome to the Game", 3);
+    draw_text(fb, 50, 300, "Press Enter to Start", 2);
+}
+
+fn draw_level_selection_screen(fb: &mut FrameBuffer) {
+    fb.clear(); // Limpiamos la pantalla antes de dibujar
+    fb.set_current_color(0xFFFFFF);
+    draw_text(fb, 50, 200, "Select a Level", 3);
+    draw_text(fb, 50, 300, "1. Level 1", 2);
+    draw_text(fb, 50, 350, "2. Level 2", 2);
+}
+
+fn draw_level_completed_screen(fb: &mut FrameBuffer) {
+    fb.clear(); // Limpiamos la pantalla antes de dibujar
+    fb.set_current_color(0x00FF00); // Color verde
+    draw_text(fb, 50, 200, "Level Completed!", 3);
+    draw_text(fb, 50, 300, "Press Enter to Return to Menu", 2);
 }
 
 fn render_minimap(fb: &mut FrameBuffer, maze: &Maze, player: &Player, minimap_size: usize, offset_x: usize, offset_y: usize) {
@@ -106,60 +134,85 @@ fn main() {
     let maze = Maze::new();
     let mut player = Player::new(3.5, 3.5, -1.0, 0.0, 0.0, 0.66);
 
-    // Verificación de que el jugador spawnea dentro del mapa
-    assert!(player.x >= 0.0 && player.x < maze.width as f64, "Player X position is out of bounds!");
-    assert!(player.y >= 0.0 && player.y < maze.height as f64, "Player Y position is out of bounds!");
-
-    fb.clear();
+    let mut game_state = GameState::WelcomeScreen;
 
     let mut window = Window::new(
         "Ray Caster - ESC para salir",
         width,
         height,
         WindowOptions::default(),
-    )
-    .unwrap_or_else(|e| {
+    ).unwrap_or_else(|e| {
         panic!("{}", e);
     });
 
     window.limit_update_rate(Some(std::time::Duration::from_micros(16600)));
 
-    let mut last_mouse_x = width as f64 / 2.0;
-
     let mut last_time = Instant::now();
     let mut frame_count = 0;
     let mut fps = 0.0;
 
+    // Desactivar el cursor del mouse para evitar rotaciones automáticas
+    let mut last_mouse_x = width as f64 / 2.0;
+
     while window.is_open() && !window.is_key_down(Key::Escape) {
         fb.clear();
 
-        if window.is_key_down(Key::W) {
-            player.move_forward(0.1, &maze);
-        }
-        if window.is_key_down(Key::S) {
-            player.move_backward(0.1, &maze);
-        }
-        if window.is_key_down(Key::A) {
-            player.rotate(-0.05);
-        }
-        if window.is_key_down(Key::D) {
-            player.rotate(0.05);
-        }
+        match game_state {
+            GameState::WelcomeScreen => {
+                draw_welcome_screen(&mut fb);
+                if window.is_key_down(Key::Enter) {
+                    game_state = GameState::LevelSelection;
+                }
+            },
+            GameState::LevelSelection => {
+                draw_level_selection_screen(&mut fb);
+                if window.is_key_down(Key::Key1) {
+                    game_state = GameState::Playing;
+                } else if window.is_key_down(Key::Key2) {
+                    game_state = GameState::Playing;
+                }
+            },
+            GameState::Playing => {
+                if window.is_key_down(Key::W) {
+                    player.move_forward(0.1, &maze);
+                }
+                if window.is_key_down(Key::S) {
+                    player.move_backward(0.1, &maze);
+                }
+                if window.is_key_down(Key::A) {
+                    player.rotate(-0.05);
+                }
+                if window.is_key_down(Key::D) {
+                    player.rotate(0.05);
+                }
 
-        let mouse_sensitivity: f64 = 0.02;
-        let (mouse_x, _mouse_y) = window.get_mouse_pos(minifb::MouseMode::Pass).unwrap_or((last_mouse_x as f32, 0.0));
+                // Limitar la rotación con el mouse
+                let mouse_sensitivity: f64 = 0.02;
+                let (mouse_x, _) = window.get_mouse_pos(minifb::MouseMode::Pass).unwrap_or((width as f32 / 2.0, 0.0));
+                let delta_x = mouse_x as f64 - last_mouse_x;
 
-        let delta_x = mouse_x as f64 - last_mouse_x;
-        last_mouse_x = mouse_x as f64;
+                if delta_x != 0.0 {
+                    let rotation_angle = -delta_x * mouse_sensitivity;
+                    player.rotate(rotation_angle);
+                }
 
-        if delta_x != 0.0 {
-            let rotation_angle = -delta_x * mouse_sensitivity;
-            player.rotate(rotation_angle);
+                last_mouse_x = mouse_x as f64;
+
+                cast_rays(&mut fb, &maze, &player);
+                render_minimap(&mut fb, &maze, &player, 100, 10, 10);
+
+                // Condición de victoria (ejemplo)
+                if player.x > 5.0 && player.y > 5.0 {
+                    game_state = GameState::LevelCompleted;
+                }
+            },
+            GameState::LevelCompleted => {
+                draw_level_completed_screen(&mut fb);
+                if window.is_key_down(Key::Enter) {
+                    game_state = GameState::WelcomeScreen;
+                }
+            }
         }
-
-        cast_rays(&mut fb, &maze, &player);
-
-        render_minimap(&mut fb, &maze, &player, 100, 10, 10);
 
         frame_count += 1;
         let current_time = Instant::now();
@@ -175,12 +228,9 @@ fn main() {
         let text_width = fps_text.len() * 6 * 3;
         let text_x = width - text_width - 10;
 
-        let fps_area_width = text_width;
-        let fps_area_height = 5 * 3;
-
         fb.set_current_color(0x000000);
-        for y in 0..fps_area_height {
-            for x in 0..fps_area_width {
+        for y in 0..15 {
+            for x in 0..text_width {
                 fb.point(text_x + x, 10 + y);
             }
         }
@@ -188,7 +238,6 @@ fn main() {
         fb.set_current_color(0xFFFFFF);
         draw_text(&mut fb, text_x, 10, &fps_text, 3);
 
-        // Verificación de límites antes de actualizar el buffer
         if fb.buffer.len() == width * height {
             window.update_with_buffer(&fb.buffer, width, height).unwrap();
         }
